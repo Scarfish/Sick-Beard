@@ -63,7 +63,7 @@ from sickbeard import notifiers
 
 from lib.tvdb_api import tvdb_api, tvdb_exceptions
 
-from lib import subliminal
+#from lib import subliminal
 #from sickbeard.subtitles import EXTENSIONS
 
 urllib._urlopener = classes.SickBeardURLopener()
@@ -633,7 +633,7 @@ def rename_ep_file(cur_path, new_path, old_path_length=0):
         
         #Check if the language extracted from filename is a valid language
         try:
-            language = subliminal.language.Language(sublang, strict=True)
+#            language = subliminal.language.Language(sublang, strict=True)
             cur_file_ext = '.'+sublang+cur_file_ext 
         except ValueError:
             pass

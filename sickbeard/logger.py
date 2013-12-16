@@ -115,7 +115,7 @@ class SBRotatingLogHandler(object):
         logging.getLogger('imdbpy').addHandler(self.cur_handler)
 
         logging.getLogger('sickbeard').setLevel(DB)
-        logging.getLogger('subliminal').setLevel(logging.WARNING)
+        logging.getLogger('subliminal').setLevel(logging.DEBUG)
         logging.getLogger('imdbpy').setLevel(logging.WARNING)
 
         # already logging in new log folder, close the old handler

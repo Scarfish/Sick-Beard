@@ -16,7 +16,9 @@
 # You should have received a copy of the GNU General Public License
 # along with Sick Beard.  If not, see <http://www.gnu.org/licenses/>.
 
+from __future__ import unicode_literals
 import datetime
+
 import sickbeard
 from sickbeard.common import *
 from sickbeard import notifiers
@@ -25,11 +27,15 @@ from sickbeard import helpers
 from sickbeard import encodingKludge as ek
 from sickbeard import db
 from sickbeard import history
+
 from lib import subliminal
+from lib.babelfish import Language, exceptions
+from lib.babelfish.language import LANGUAGE_MATRIX
 
 SINGLE = 'und'
+
 def sortedServiceList():
-    servicesMapping = dict([(x.lower(), x) for x in subliminal.core.SERVICES])
+    servicesMapping = dict([(x.lower(), x) for x in subliminal.providers.PROVIDERS])
 
     newList = []
 
@@ -37,14 +43,14 @@ def sortedServiceList():
     curIndex = 0
     for curService in sickbeard.SUBTITLES_SERVICES_LIST:
         if curService in servicesMapping:
-            curServiceDict = {'id': curService, 'image': curService+'.png', 'name': servicesMapping[curService], 'enabled': sickbeard.SUBTITLES_SERVICES_ENABLED[curIndex] == 1, 'api_based': __import__('lib.subliminal.services.' + curService, globals=globals(), locals=locals(), fromlist=['Service'], level=-1).Service.api_based, 'url': __import__('lib.subliminal.services.' + curService, globals=globals(), locals=locals(), fromlist=['Service'], level=-1).Service.site_url}
+            curServiceDict = {'id': curService, 'image': curService+'.png', 'name': servicesMapping[curService], 'enabled': sickbeard.SUBTITLES_SERVICES_ENABLED[curIndex] == 1, 'url': subliminal.providers.get_provider(curService).server, 'need_auth' : True if hasattr(subliminal.providers.get_provider(curService), 'password') else False}
             newList.append(curServiceDict)
         curIndex += 1
 
     # add any services that are missing from that list
     for curService in servicesMapping.keys():
         if curService not in [x['id'] for x in newList]:
-            curServiceDict = {'id': curService, 'image': curService+'.png', 'name': servicesMapping[curService], 'enabled': False, 'api_based': __import__('lib.subliminal.services.' + curService, globals=globals(), locals=locals(), fromlist=['Service'], level=-1).Service.api_based, 'url': __import__('lib.subliminal.services.' + curService, globals=globals(), locals=locals(), fromlist=['Service'], level=-1).Service.site_url}
+            curServiceDict = {'id': curService, 'image': curService+'.png', 'name': servicesMapping[curService], 'enabled': False, 'url': subliminal.providers.get_provider(curService).server, 'need_auth' : True if hasattr(subliminal.providers.get_provider(curService), 'username') else False}
             newList.append(curServiceDict)
 
     return newList
@@ -53,10 +59,13 @@ def getEnabledServiceList():
     return [x['name'] for x in sortedServiceList() if x['enabled']]
     
 def isValidLanguage(language):
-    return subliminal.language.language_list(language)
+    try:
+        return Language.fromalpha2(language)
+    except LanguageReverseError:
+        return False
 
 def getLanguageName(selectLang):
-    return subliminal.language.Language(selectLang).name
+    return Language.fromalpha2(selectLang).name
 
 def wantedLanguages(sqlLike = False):
     wantedLanguages = sorted(sickbeard.SUBTITLES_LANGUAGES)
@@ -66,25 +75,24 @@ def wantedLanguages(sqlLike = False):
 
 def subtitlesLanguages(video_path):
     """Return a list detected subtitles for the given video file"""
-    video = subliminal.videos.Video.from_path(video_path)
-    subtitles = video.scan()
+    subtitle_languages = subliminal.video.scan_subtitle_languages(video_path)
     languages = set()
-    for subtitle in subtitles:
-        if subtitle.language:
-            languages.add(subtitle.language.alpha2)
-        else:
-            languages.add(SINGLE)
+    for language in subtitle_languages:
+        languages.add(language.alpha2)
+
     return list(languages)
 
 # Return a list with languages that have alpha2 code
 def subtitleLanguageFilter():
-    return [language for language in subliminal.language.LANGUAGES if language[2] != ""]
+    return [x for x in LANGUAGE_MATRIX if not x.alpha2 == '']
 
+    
 class SubtitlesFinder():
     """
     The SubtitlesFinder will be executed every hour but will not necessarly search
     and download subtitles. Only if the defined rule is true
     """
+    
     def run(self):
         # TODO: Put that in the __init__ before starting the thread?
         if not sickbeard.USE_SUBTITLES:
