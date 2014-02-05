@@ -34,8 +34,9 @@ except:
     print "The Python module Cheetah is required"
     sys.exit(1)
 
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'lib')))
+import os, PathLocator
+libPath = 'lib/lib' if PathLocator.isAppFrozen() else 'lib'
+sys.path.insert(0, os.path.abspath(os.path.join(PathLocator.currentFileDirName(), libPath)))
 
 # We only need this for compiling an EXE and I will just always do that on 2.6+
 if sys.hexversion >= 0x020600F0:
@@ -127,7 +128,7 @@ def main():
     """
 
     # do some preliminary stuff
-    sickbeard.MY_FULLNAME = os.path.normpath(os.path.abspath(__file__))
+    sickbeard.MY_FULLNAME = os.path.normpath(PathLocator.currentFileAbsPath())
     sickbeard.MY_NAME = os.path.basename(sickbeard.MY_FULLNAME)
     sickbeard.PROG_DIR = os.path.dirname(sickbeard.MY_FULLNAME)
     sickbeard.DATA_DIR = sickbeard.PROG_DIR
