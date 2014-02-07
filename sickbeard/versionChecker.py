@@ -17,6 +17,7 @@
 # along with Sick Beard.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import sys
 import platform
 import shutil
 import subprocess
@@ -27,6 +28,7 @@ import tarfile
 import stat
 import traceback
 import gh_api as github
+import json
 
 import sickbeard
 from sickbeard import helpers
@@ -36,7 +38,6 @@ from sickbeard import scene_exceptions
 from sickbeard.exceptions import ex
 from sickbeard import encodingKludge as ek
 from sickbeard import failed_history
-
 
 class CheckVersion():
     """
@@ -76,7 +77,7 @@ class CheckVersion():
         """
 
         # check if we're a windows build
-        if sickbeard.version.SICKBEARD_VERSION.startswith('build '):
+        if hasattr(sys, "frozen"):
             install_type = 'win'
         elif os.path.isdir(ek.ek(os.path.join, sickbeard.PROG_DIR, u'.git')):
             install_type = 'git'
@@ -118,7 +119,7 @@ class CheckVersion():
 class UpdateManager():
 
     def get_github_repo_user(self):
-        return 'nivong'
+        return 'Scarfish'
 
     def get_github_repo(self):
         return 'Sick-Beard'
@@ -132,19 +133,20 @@ class WindowsUpdateManager(UpdateManager):
     def __init__(self):
         self.github_repo_user = self.get_github_repo_user()
         self.github_repo = self.get_github_repo()
-        self.branch = 'windows_binaries'
+        self.branch = 'Dutch'
 
         self._cur_version = None
         self._cur_commit_hash = None
         self._newest_version = None
 
-        self.gc_url = 'http://code.google.com/p/sickbeard/downloads/list'
-        self.version_url = 'https://raw.github.com/' + self.github_repo_user + '/' + self.github_repo + '/' + self.branch + '/updates.txt'
+        self.releases_url = 'https://github.com/' + self.github_repo_user + '/' + self.github_repo + '/releases'
+        self.version_url = 'https://api.github.com/repos/' + self.github_repo_user + '/' + self.github_repo + '/releases'
+        self.download_url = 'https://github.com/' + self.github_repo_user + '/' + self.github_repo + '/releases/download/%s/%s'
 
     def _find_installed_version(self):
         try:
             version = sickbeard.version.SICKBEARD_VERSION
-            return int(version[6:])
+            return int(version.rpartition(' ')[-1])
         except ValueError:
             logger.log(u"Unknown SickBeard Windows binary release: " + version, logger.ERROR)
             return None
@@ -158,24 +160,30 @@ class WindowsUpdateManager(UpdateManager):
                     only the build number. default: False
         """
 
-        regex = ".*SickBeard\-win32\-alpha\-build(\d+)(?:\.\d+)?\.zip"
+        releases = json.load(urllib.urlopen(self.version_url))
 
-        version_url_data = helpers.getURL(self.version_url)
-
-        if version_url_data is None:
+        if "message" in releases and "API rate limit exceeded" in releases['message']:
+            logger.log(u"Cannot check for update. Too many GitHub API calls were fired in the last 60 minutes.", logger.ERROR)
             return None
-        else:
-            for curLine in version_url_data.splitlines():
-                logger.log(u"checking line " + curLine, logger.DEBUG)
-                match = re.match(regex, curLine)
-                if match:
-                    logger.log(u"found a match", logger.DEBUG)
-                    if whole_link:
-                        return curLine.strip()
-                    else:
-                        return int(match.group(1))
 
-        return None
+        latestBuild = None
+        releaseName = None
+        for release in releases:
+            build = int(release['name'].rpartition('-')[-1])
+            if build > latestBuild:
+                latestBuild = build
+                releaseName = release['name']
+
+        if latestBuild is None:
+            logger.log(u"No releases found", logger.DEBUG)
+            return None
+
+        if not whole_link:
+            return latestBuild
+        
+        zipFileName = "SickBeard-%s-win32-alpha-build-%d.zip" % (self.branch, latestBuild)
+
+        return self.download_url % (releaseName, zipFileName)
 
     def need_update(self):
         self._cur_version = self._find_installed_version()
@@ -193,7 +201,7 @@ class WindowsUpdateManager(UpdateManager):
         if not self._cur_version:
             newest_text = "Unknown SickBeard Windows binary version. Not updating with original version."
         else:
-            newest_text = 'There is a <a href="' + self.gc_url + '" onclick="window.open(this.href); return false;">newer version available</a> (build ' + str(self._newest_version) + ')'
+            newest_text = 'There is a <a href="' + self.releases_url + '" onclick="window.open(this.href); return false;">newer version available</a> (build ' + str(self._newest_version) + ')'
             newest_text += "&mdash; <a href=\"" + self.get_update_url() + "\">Update Now</a>"
 
         sickbeard.NEWEST_VERSION_STRING = newest_text

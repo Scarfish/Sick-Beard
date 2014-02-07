@@ -19,13 +19,13 @@ githubRepoBranch = 'Dutch'
 def findLatestBuild():
 
     latestBuild = 0
-    releases = json.load(urllib.urlopen("https://api.github.com/repos/" + githubRepoUser + "/Sick-Beard/releases"))    
+    releases = json.load(urllib.urlopen("https://api.github.com/repos/" + githubRepoUser + "/Sick-Beard/releases"))
 
     if 'message' in releases and 'API rate limit exceeded' in releases['message']:
         raise Exception('Too many GitHub API calls were fired in the last 60 minutes. Please try again later.')
 
     for release in releases:
-        build = int(release['name'].rpartition('-')[2])
+        build = int(release['name'].rpartition('-')[-1])
         latestBuild = build if build > latestBuild else latestBuild
 
     return latestBuild
