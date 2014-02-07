@@ -35,6 +35,7 @@ except:
     sys.exit(1)
 
 import os, PathLocator
+# When the EXE is created the folder lib will be one level deeper
 libPath = 'lib/lib' if PathLocator.isAppFrozen() else 'lib'
 sys.path.insert(0, os.path.abspath(os.path.join(PathLocator.currentFileDirName(), libPath)))
 

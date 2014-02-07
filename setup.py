@@ -1,9 +1,8 @@
-import re
 import urllib, ConfigParser
 from distutils.core import setup
 import py2exe, sys, os, shutil, datetime, zipfile, subprocess, fnmatch
-import googlecode_upload
-from lib.pygithub import github
+import json, PathLocator
+from glob import glob
 
 # mostly stolen from the SABnzbd package.py file
 name = 'SickBeard'
@@ -14,26 +13,31 @@ release = name + '-' + version
 Win32ConsoleName = 'SickBeard-console.exe'
 Win32WindowName = 'SickBeard.exe'
 
+githubRepoUser = 'Scarfish'
+githubRepoBranch = 'Dutch'
+
 def findLatestBuild():
 
-    regex = "http\://sickbeard\.googlecode\.com/files/SickBeard\-win32\-alpha\-build(\d+)(?:\.\d+)?\.zip"
-    
-    svnFile = urllib.urlopen("http://code.google.com/p/sickbeard/downloads/list")
-    
-    for curLine in svnFile.readlines():
-        match = re.search(regex, curLine)
-        if match:
-            groups = match.groups()
-            return int(groups[0])
+    latestBuild = 0
+    releases = json.load(urllib.urlopen("https://api.github.com/repos/" + githubRepoUser + "/Sick-Beard/releases"))    
 
-    return None
+    if 'message' in releases and 'API rate limit exceeded' in releases['message']:
+        raise Exception('Too many GitHub API calls were fired in the last 60 minutes. Please try again later.')
 
-def recursive_find_data_files(root_dir, allowed_extensions=('*')):
+    for release in releases:
+        build = int(release['name'].rpartition('-')[2])
+        latestBuild = build if build > latestBuild else latestBuild
+
+    return latestBuild
+
+def recursive_find_data_files(root_dir, allowed_extensions=('*'), new_root_dir=None):
     
     to_return = {}
     for (dirpath, dirnames, filenames) in os.walk(root_dir):
         if not filenames:
             continue
+
+        newdirpath = dirpath if not new_root_dir else os.path.join(new_root_dir, dirpath)
         
         for cur_filename in filenames:
             
@@ -45,7 +49,7 @@ def recursive_find_data_files(root_dir, allowed_extensions=('*')):
                 continue
             
             cur_filepath = os.path.join(dirpath, cur_filename)
-            to_return.setdefault(dirpath, []).append(cur_filepath)
+            to_return.setdefault(newdirpath, []).append(cur_filepath)
             
     return sorted(to_return.items())
 
@@ -105,11 +109,17 @@ else:
 
 # write the version file before we compile
 versionFile = open("sickbeard/version.py", "w")
-versionFile.write("SICKBEARD_VERSION = \"build "+str(currentBuildNumber)+"\"")
+versionFile.write("SICKBEARD_VERSION = \"" + githubRepoBranch + " build "+str(currentBuildNumber)+"\"")
 versionFile.close()
 
 # set up the compilation options
-data_files = recursive_find_data_files('data', ['gif', 'png', 'jpg', 'ico', 'js', 'css', 'tmpl'])
+data_files = recursive_find_data_files('gui', ['gif', 'png', 'jpg', 'ico', 'js', 'css', 'tmpl'])
+# Also incorporate the txt and dll files from the libraries as some are necessary (e.g. guessit, unrar2)
+data_files.extend(recursive_find_data_files('lib', ['dll', 'txt'], 'lib'))
+# Incorporate assemblies from the redist package so that it doesn't have to be installed
+data_files.append(('.', glob(r'C:\\Program Files/Microsoft Visual Studio 9.0/VC/redist/x86/Microsoft.VC90.CRT/*.*')))
+
+packages = find_all_libraries(['sickbeard', 'lib'])
 
 options = dict(
     name=name,
@@ -118,18 +128,22 @@ options = dict(
     author_email='nic@wolfeden.ca',
     description=name + ' ' + release,
     scripts=['SickBeard.py'],
-    packages=find_all_libraries(['sickbeard', 'lib']),
+    packages=list(packages),
 )
+
+packages.append('Cheetah');
 
 # set up py2exe to generate the console app
 program = [ {'script': 'SickBeard.py' } ]
 options['options'] = {'py2exe':
                         {
                          'bundle_files': 3,
-                         'packages': ['Cheetah'],
+                         'packages': packages,
                          'excludes': ['Tkconstants', 'Tkinter', 'tcl'],
                          'optimize': 2,
-                         'compressed': 0
+                         'compressed': 0,
+#Archive cannot be used because of files that modules depend on (eg. unrar2 depends on unrar.dll)
+                         'skip_archive': 1
                         }
                      }
 options['zipfile'] = 'lib/sickbeard.zip'
@@ -187,7 +201,6 @@ if 'test' in oldArgs:
 else:
     # start building the CHANGELOG.txt
     print 'Creating changelog'
-    gh = github.GitHub()
     
     # read the old changelog and find the last commit from that build
     lastCommit = ""
@@ -202,14 +215,20 @@ else:
     changeString = ""
 
     # cycle through all the git commits and save their commit messages
-    for curCommit in gh.commits.forBranch('midgetspy', 'Sick-Beard'):
-        if curCommit.id == lastCommit:
-            break
+    commits = json.load(urllib.urlopen("https://api.github.com/repos/" + githubRepoUser + "/Sick-Beard/commits"))
+
+    if 'message' in commits and 'API rate limit exceeded' in commits['message']:
+        raise Exception('Too many GitHub API calls were fired in the last 60 minutes. Please try again later.')
+
+    for curCommit in commits:
+        if curCommit['sha'] == lastCommit:
+            break;
+
     
         if newestCommit == "":
-            newestCommit = curCommit.id
+            newestCommit = curCommit['sha']
         
-        changeString += curCommit.message + "\n\n"
+        changeString += curCommit['commit']['message'] + "\n\n"
     
     # if we didn't find any changes don't make a changelog file
     if newestCommit != "":
@@ -227,7 +246,7 @@ if os.path.exists("CHANGELOG.txt"):
 
 # figure out what we're going to call the zip file
 print 'Zipping files...'
-zipFilename = 'SickBeard-win32-alpha-build'+str(currentBuildNumber)
+zipFilename = 'SickBeard-' + githubRepoBranch + '-win32-alpha-build-'+str(currentBuildNumber)
 if os.path.isfile(zipFilename + '.zip'):
     zipNum = 2
     while os.path.isfile(zipFilename + '.{0:0>2}.zip'.format(str(zipNum))):
@@ -248,26 +267,5 @@ print "Created zip at", zipFilename
 # leave version file as it is in source
 print "Reverting version file to master"
 versionFile = open("sickbeard/version.py", "w")
-versionFile.write("SICKBEARD_VERSION = \"master\"")
+versionFile.write("SICKBEARD_VERSION = \"" + githubRepoBranch + "\"")
 versionFile.close()
-
-# i store my google code username/pw in a config so i can have this file in public source control 
-config = ConfigParser.ConfigParser()
-configFilename = os.path.join(compile_dir, "gc.ini")
-config.read(configFilename)
-
-gc_username = config.get("GC", "username")
-gc_password = config.get("GC", "password")
-
-# upload to google code unless I tell it not to
-if "noup" not in oldArgs and "test" not in oldArgs:
-    print "Uploading zip to google code"
-    googlecode_upload.upload(os.path.abspath(zipFilename+".zip"), "sickbeard", gc_username, gc_password, "Win32 alpha build "+str(currentBuildNumber)+" (unstable/development release)", ["Featured","Type-Executable","OpSys-Windows"])
- 
-if 'nopush' not in oldArgs and 'test' not in oldArgs:
-    # tag commit as a new build and push changes to github
-    print 'Tagging commit and pushing'
-    p = subprocess.Popen('git tag -a "build-'+str(currentBuildNumber)+'" -m "Windows build '+zipFilename+'"', shell=True, cwd=compile_dir)
-    o,e = p.communicate()
-    p = subprocess.Popen('git push --tags origin windows_binaries', shell=True, cwd=compile_dir)
-    o,e = p.communicate()
